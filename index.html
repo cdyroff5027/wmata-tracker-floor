@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WMATA Commute Tracker</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&family=JetBrains+Mono:wght@700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #06090e;
+      color: #f8fafc;
+    }
+    .font-mono-led {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .led-amber {
+      color: #fbbf24;
+      text-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
+    }
+    .led-red {
+      color: #f43f5e;
+      text-shadow: 0 0 14px rgba(244, 63, 94, 0.55);
+    }
+    .led-green {
+      color: #34d399;
+      text-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
+    }
+    @keyframes pulse-fast {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.97); }
+    }
+    .animate-brd {
+      animation: pulse-fast 1.1s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-[#06090e] p-2.5 sm:p-4 text-slate-100 selection:bg-rose-600 selection:text-white">
+  <!-- Toast Notification -->
+  <div id="toastContainer" class="fixed top-3 right-3 z-50 hidden rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs font-semibold text-slate-100 shadow-xl backdrop-blur">
+    <div class="flex items-center gap-2">
+      <span id="toastDot" class="h-2 w-2 rounded-full bg-emerald-400"></span>
+      <span id="toastMessage">Refreshed</span>
+    </div>
+  </div>
+
+  <div class="mx-auto max-w-md">
+    <!-- TOP HEADER: TITLE + REFRESH NOW BUTTON -->
+    <header class="mb-2 rounded-xl border border-slate-800 bg-slate-900/90 p-2 shadow-lg">
+      <div class="flex items-center justify-between gap-3">
+        <!-- REFRESH BUTTON -->
+        <button id="btnRefreshNow" type="button" class="flex flex-1 items-center justify-center gap-2 rounded-lg bg-rose-600 py-2 px-3 text-xs font-black uppercase tracking-wider text-white shadow-md shadow-rose-600/30 transition hover:bg-rose-500 active:scale-[0.99]">
+          <svg id="refreshIconSvg" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh Now
+        </button>
+
+        <!-- SECONDS SINCE UPDATE -->
+        <div class="flex shrink-0 items-center rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 font-mono-led text-xs font-bold text-slate-300">
+          <span id="lastUpdatedText">0s ago</span>
+        </div>
+      </div>
+
+      <!-- Retained hidden elements for script compatibility -->
+      <span id="commuteScheduleBadge" class="hidden"></span>
+      <span id="feedStatusText" class="hidden"></span>
+    </header>
+
+    <!-- COMMUTE CARDS CONTAINER (Automatically reordered by time of day) -->
+    <main id="commuteCardsContainer" class="space-y-2">
+
+      <!-- AFTERNOON PANEL 1: FEDERAL TRIANGLE -> VIENNA / ASHBURN / FRANCONIA -->
+      <section id="cardFederalTriangle" class="rounded-xl border border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950 p-2.5 shadow-md transition-all">
+        <div class="flex items-center justify-between gap-1.5 border-b border-slate-800/80 pb-1.5">
+          <div class="flex items-center gap-1.5">
+            <div class="flex items-center -space-x-1">
+              <span class="rounded bg-orange-500 px-1.5 py-0.5 text-[10px] font-black uppercase text-white ring-1 ring-slate-900">OR</span>
+              <span class="rounded bg-slate-400 px-1.5 py-0.5 text-[10px] font-black uppercase text-slate-950 ring-1 ring-slate-900">SV</span>
+              <span class="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-black uppercase text-white ring-1 ring-slate-900">BL</span>
+            </div>
+            <div>
+              <div class="text-xs font-black text-white leading-tight">
+                Federal Triangle &rarr; <span class="text-amber-300">Vienna / Ashburn / Franconia</span>
+              </div>
+              <div class="text-[9px] text-slate-400">Station D01 &bull; Track 2 (North / Westbound to VA)</div>
+            </div>
+          </div>
+          <div id="fedTrianglePaceBadge" class="rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
+            Checking...
+          </div>
+        </div>
+
+        <div class="mt-2">
+          <div id="fedTriangleQuickMinutesRow" class="grid grid-flow-col auto-cols-fr gap-1.5"></div>
+        </div>
+      </section>
+
+      <!-- AFTERNOON PANEL 2: METRO CENTER -> GLENMONT (RED LINE) -->
+      <section id="cardEvening" class="rounded-xl border border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950 p-2.5 shadow-md transition-all">
+        <div class="flex items-center justify-between gap-1.5 border-b border-slate-800/80 pb-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-black uppercase text-white">RD</span>
+            <div>
+              <div class="text-xs font-black text-white leading-tight">
+                Metro Center &rarr; <span class="text-rose-400">Glenmont</span>
+              </div>
+              <div class="text-[9px] text-slate-400">Station A01 &bull; Track 1 (Red Line)</div>
+            </div>
+          </div>
+          <div id="eveningPaceBadge" class="rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
+            Checking...
+          </div>
+        </div>
+
+        <div class="mt-2">
+          <div id="eveningQuickMinutesRow" class="grid grid-flow-col auto-cols-fr gap-1.5"></div>
+        </div>
+      </section>
+
+      <!-- MORNING COMMUTE CARD: SILVER SPRING -> SHADY GROVE -->
+      <section id="cardMorning" class="rounded-xl border border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950 p-2.5 shadow-md transition-all">
+        <div class="flex items-center justify-between gap-1.5 border-b border-slate-800/80 pb-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-black uppercase text-amber-300">AM</span>
+            <div>
+              <div class="text-xs font-black text-white leading-tight">
+                Silver Spring &rarr; <span class="text-rose-400">Shady Grove</span>
+              </div>
+              <div class="text-[9px] text-slate-400">Station B08 &bull; Track 2 (Red Line)</div>
+            </div>
+          </div>
+          <div id="morningPaceBadge" class="rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-300">
+            Checking...
+          </div>
+        </div>
+
+        <div class="mt-2">
+          <div id="morningQuickMinutesRow" class="grid grid-flow-col auto-cols-fr gap-1.5"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- FOOTER: FEED STATUS NOTE & SETTINGS TOGGLE -->
+    <footer class="mt-2.5 flex items-center justify-between px-1 text-[11px] text-slate-400">
+      <div class="flex items-center gap-1.5">
+        <button id="btnOpenSettings" type="button" class="text-slate-400 underline hover:text-slate-200">
+          API Key &amp; Settings
+        </button>
+        <span>&bull;</span>
+        <button id="btnTogglePause" type="button" class="text-slate-400 hover:text-slate-200">
+          <span id="pauseBtnLabel">Pause Auto</span>
+        </button>
+      </div>
+      <span id="feedModeIndicator" class="text-[10px] text-slate-400">Live GIS Calibrated</span>
+    </footer>
+  </div>
+
+  <!-- Settings & API Key Modal -->
+  <div id="settingsModal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+        <h3 class="text-sm font-bold text-white">WMATA API &amp; Commute Settings</h3>
+        <button id="btnCloseSettings" type="button" class="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white">
+          &#10005;
+        </button>
+      </div>
+
+      <div class="mt-3 space-y-3">
+        <div>
+          <label for="inputApiKey" class="block text-[11px] font-bold uppercase tracking-wider text-slate-300">
+            WMATA API Key
+          </label>
+          <input id="inputApiKey" type="text" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 font-mono-led text-xs text-white focus:border-rose-500 focus:outline-none" />
+          <p class="mt-1 text-[10px] text-slate-400">
+            Default Tier key from <a href="https://developer.wmata.com/" target="_blank" rel="noopener noreferrer" class="text-rose-400 underline">developer.wmata.com</a>.
+          </p>
+        </div>
+
+        <div>
+          <label for="selectTimeMode" class="block text-[11px] font-bold uppercase tracking-wider text-slate-300">
+            Display Order
+          </label>
+          <select id="selectTimeMode" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:border-rose-500 focus:outline-none">
+            <option value="auto">Automatic (Silver Spring AM / Metro Center &amp; Fed Triangle PM)</option>
+            <option value="am_first">Always Silver Spring First</option>
+            <option value="pm_first">Always Afternoon Commute First</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="selectRefreshInterval" class="block text-[11px] font-bold uppercase tracking-wider text-slate-300">
+            Auto-Refresh Interval
+          </label>
+          <select id="selectRefreshInterval" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:border-rose-500 focus:outline-none">
+            <option value="10">Every 10 seconds</option>
+            <option value="15">Every 15 seconds</option>
+            <option value="20" selected>Every 20 seconds (recommended)</option>
+            <option value="30">Every 30 seconds</option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs">
+          <span class="text-slate-300">Simulated Data Mode</span>
+          <input id="chkForceDemo" type="checkbox" class="h-4 w-4 rounded border-slate-700 bg-slate-900 text-rose-600" />
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between gap-2 border-t border-slate-800 pt-3">
+        <button id="btnResetDemoKey" type="button" class="text-[11px] text-slate-400 hover:text-white underline">
+          Reset Demo Key
+        </button>
+        <div class="flex items-center gap-1.5">
+          <button id="btnCancelSettings" type="button" class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">
+            Cancel
+          </button>
+          <button id="btnSaveSettings" type="button" class="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-500">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const DEFAULT_DEMO_KEY = 'e13626d03d8e4c03ac07f95541b3091b';
+
+      const state = {
+        apiKey: DEFAULT_DEMO_KEY,
+        refreshSeconds: 20,
+        secondsRemaining: 20,
+        isPaused: false,
+        forceDemo: false,
+        timeMode: 'auto',
+        lastFetchTime: null,
+        isLiveFeed: false,
+        trains: []
+      };
+
+      function loadSavedSettings() {
+        try {
+          const savedKey = localStorage.getItem('wmata_commute_api_key');
+          if (savedKey && savedKey.trim()) state.apiKey = savedKey.trim();
+          const savedInterval = parseInt(localStorage.getItem('wmata_commute_interval'), 10);
+          if ([10, 15, 20, 30].includes(savedInterval)) {
+            state.refreshSeconds = savedInterval;
+            state.secondsRemaining = savedInterval;
+          }
+          const savedTimeMode = localStorage.getItem('wmata_commute_time_mode');
+          if (['auto', 'am_first', 'pm_first'].includes(savedTimeMode)) {
+            state.timeMode = savedTimeMode;
+          }
+        } catch (err) {}
+      }
+
+      function saveSettingsToStorage() {
+        try {
+          localStorage.setItem('wmata_commute_api_key', state.apiKey);
+          localStorage.setItem('wmata_commute_interval', String(state.refreshSeconds));
+          localStorage.setItem('wmata_commute_time_mode', state.timeMode);
+        } catch (err) {}
+      }
+
+      function showToast(msg, isWarning) {
+        const container = document.getElementById('toastContainer');
+        const textEl = document.getElementById('toastMessage');
+        const dotEl = document.getElementById('toastDot');
+        textEl.textContent = msg;
+        dotEl.className = isWarning
+          ? 'h-2 w-2 rounded-full bg-amber-400'
+          : 'h-2 w-2 rounded-full bg-emerald-400';
+        container.classList.remove('hidden');
+        if (window._toastTimer) clearTimeout(window._toastTimer);
+        window._toastTimer = setTimeout(function () {
+          container.classList.add('hidden');
+        }, 2000);
+      }
+
+      function getSimulatedTrains() {
+        const secOffset = Math.floor((Date.now() / 1000) % 60);
+        const shift = secOffset < 20 ? 0 : (secOffset < 40 ? -1 : 1);
+        const calcMin = function (base) {
+          return String(Math.max(1, base + shift));
+        };
+        return [
+          // Silver Spring (B08) -> Shady Grove (A15)
+          { Car: '8', Destination: 'Shady Grv', DestinationCode: 'A15', DestinationName: 'Shady Grove', Group: '2', Line: 'RD', LocationCode: 'B08', LocationName: 'Silver Spring', Min: secOffset < 10 ? 'ARR' : calcMin(2) },
+          { Car: '6', Destination: 'Grosvenor', DestinationCode: 'A11', DestinationName: 'Grosvenor-Strathmore', Group: '2', Line: 'RD', LocationCode: 'B08', LocationName: 'Silver Spring', Min: calcMin(6) },
+          { Car: '8', Destination: 'Shady Grv', DestinationCode: 'A15', DestinationName: 'Shady Grove', Group: '2', Line: 'RD', LocationCode: 'B08', LocationName: 'Silver Spring', Min: calcMin(11) },
+          { Car: '8', Destination: 'Shady Grv', DestinationCode: 'A15', DestinationName: 'Shady Grove', Group: '2', Line: 'RD', LocationCode: 'B08', LocationName: 'Silver Spring', Min: calcMin(16) },
+
+          // Metro Center (A01) -> Glenmont (B11)
+          { Car: '8', Destination: 'Glenmont', DestinationCode: 'B11', DestinationName: 'Glenmont', Group: '1', Line: 'RD', LocationCode: 'A01', LocationName: 'Metro Center', Min: secOffset > 48 ? 'ARR' : calcMin(3) },
+          { Car: '6', Destination: 'SilvrSpg', DestinationCode: 'B08', DestinationName: 'Silver Spring', Group: '1', Line: 'RD', LocationCode: 'A01', LocationName: 'Metro Center', Min: calcMin(7) },
+          { Car: '8', Destination: 'Glenmont', DestinationCode: 'B11', DestinationName: 'Glenmont', Group: '1', Line: 'RD', LocationCode: 'A01', LocationName: 'Metro Center', Min: calcMin(12) },
+          { Car: '8', Destination: 'Glenmont', DestinationCode: 'B11', DestinationName: 'Glenmont', Group: '1', Line: 'RD', LocationCode: 'A01', LocationName: 'Metro Center', Min: calcMin(18) },
+
+          // Federal Triangle (D01) -> Vienna / Ashburn / Franconia (Track 2)
+          { Car: '8', Destination: 'Vienna', DestinationCode: 'K08', DestinationName: 'Vienna', Group: '2', Line: 'OR', LocationCode: 'D01', LocationName: 'Federal Triangle', Min: secOffset < 12 ? 'ARR' : calcMin(2) },
+          { Car: '8', Destination: 'Ashburn', DestinationCode: 'N06', DestinationName: 'Ashburn', Group: '2', Line: 'SV', LocationCode: 'D01', LocationName: 'Federal Triangle', Min: calcMin(5) },
+          { Car: '8', Destination: 'Franconia', DestinationCode: 'J03', DestinationName: 'Franconia-Springfield', Group: '2', Line: 'BL', LocationCode: 'D01', LocationName: 'Federal Triangle', Min: calcMin(9) },
+          { Car: '8', Destination: 'Vienna', DestinationCode: 'K08', DestinationName: 'Vienna', Group: '2', Line: 'OR', LocationCode: 'D01', LocationName: 'Federal Triangle', Min: calcMin(13) }
+        ];
+      }
+
+      // GIS Floor Calibration: maps API ceiling values to live GIS floor values
+      function getGisCalibratedMin(rawMin) {
+        if (!rawMin) return '--';
+        const str = String(rawMin).trim();
+        if (str === 'BRD' || str === 'ARR') return str;
+        const n = parseInt(str, 10);
+        if (isNaN(n)) return str;
+        if (n <= 1) return '1';
+        return String(n - 1);
+      }
+
+      function parseMinRank(minVal) {
+        if (minVal === 'BRD') return -2;
+        if (minVal === 'ARR') return -1;
+        const n = parseInt(minVal, 10);
+        return isNaN(n) ? 999 : n;
+      }
+
+      function isShadyGroveBound(t) {
+        if (t.LocationCode !== 'B08') return false;
+        const dest = ((t.DestinationName || '') + ' ' + (t.Destination || '')).toLowerCase();
+        if (t.DestinationCode === 'A15' || dest.includes('shady')) return true;
+        if (t.DestinationCode === 'A11' || dest.includes('grosvenor') || t.Group === '2') {
+          if (t.DestinationCode !== 'B11' && !dest.includes('glenmont') && !dest.includes('no passenger')) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function isGlenmontBound(t) {
+        if (t.LocationCode !== 'A01') return false;
+        const dest = ((t.DestinationName || '') + ' ' + (t.Destination || '')).toLowerCase();
+        if (t.DestinationCode === 'B11' || dest.includes('glenmont')) return true;
+        if (t.DestinationCode === 'B08' || dest.includes('silver') || dest.includes('silvr') || t.Group === '1') {
+          if (t.DestinationCode !== 'A15' && t.DestinationCode !== 'A11' && !dest.includes('shady') && !dest.includes('grosvenor') && !dest.includes('no passenger')) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // Federal Triangle: Trains traveling toward Vienna (OR), Ashburn (SV), or Franconia-Springfield (BL)
+      function isFederalTriangleBound(t) {
+        if (t.LocationCode !== 'D01') return false;
+        const line = (t.Line || '').toUpperCase();
+        if (!['OR', 'SV', 'BL'].includes(line)) return false;
+
+        const destCode = t.DestinationCode || '';
+        const destName = ((t.DestinationName || '') + ' ' + (t.Destination || '')).toLowerCase();
+
+        // Track 2 / Westbound (Group 2)
+        if (t.Group === '2') return true;
+
+        // By destination codes or names
+        if (destCode === 'K08' || destName.includes('vienna')) return true;
+        if (destCode === 'N06' || destName.includes('ashburn')) return true;
+        if (destCode === 'J03' || destName.includes('franconia')) return true;
+        // Short-turns toward VA (West Falls Church, Ballston)
+        if (destCode === 'K05' || destName.includes('falls church') || destName.includes('ballston')) return true;
+
+        return false;
+      }
+
+      function computePaceAdvisory(trains) {
+        if (!trains || trains.length === 0) {
+          return { text: 'No Trains', cls: 'border border-slate-700 bg-slate-800 text-slate-400' };
+        }
+        const firstRawMin = trains[0].Min;
+        if (firstRawMin === 'BRD' || firstRawMin === 'ARR') {
+          return { text: 'AT PLATFORM!', cls: 'border border-rose-500 bg-rose-600/30 text-rose-200 animate-brd' };
+        }
+        const calMin = getGisCalibratedMin(firstRawMin);
+        const n = parseInt(calMin, 10);
+        if (n <= 2) {
+          return { text: 'RUN (' + n + 'm)', cls: 'border border-rose-500/80 bg-rose-500/20 text-rose-300' };
+        }
+        if (n <= 4) {
+          return { text: 'HUSTLE (' + n + 'm)', cls: 'border border-amber-500/60 bg-amber-500/20 text-amber-300' };
+        }
+        return { text: 'EASY WALK (' + n + 'm)', cls: 'border border-emerald-500/50 bg-emerald-500/15 text-emerald-300' };
+      }
+
+      function getLineBadge(line) {
+        line = (line || '').toUpperCase();
+        if (line === 'OR') return '<span class="rounded bg-orange-500 px-1 py-0.2 text-[9px] font-black uppercase text-white">OR</span>';
+        if (line === 'SV') return '<span class="rounded bg-slate-400 px-1 py-0.2 text-[9px] font-black uppercase text-slate-950">SV</span>';
+        if (line === 'BL') return '<span class="rounded bg-sky-600 px-1 py-0.2 text-[9px] font-black uppercase text-white">BL</span>';
+        return '<span class="rounded bg-rose-600 px-1 py-0.2 text-[9px] font-black uppercase text-white">RD</span>';
+      }
+
+      function renderQuickMinuteBlocks(trains, showLineBadge) {
+        if (!trains || trains.length === 0) {
+          return '<div class="w-full rounded-lg border border-slate-800 bg-slate-950 py-2.5 text-center text-xs text-slate-400">No upcoming trains reported</div>';
+        }
+        return trains.slice(0, 4).map(function (t, idx) {
+          const displayMin = getGisCalibratedMin(t.Min);
+          const isImmediate = displayMin === 'BRD' || displayMin === 'ARR';
+          const numMin = parseInt(displayMin, 10);
+          const isUrgent = isImmediate || (!isNaN(numMin) && numMin <= 2);
+
+          const cardBorder = idx === 0
+            ? (isUrgent ? 'border-rose-500/80 bg-rose-950/40 ring-1 ring-rose-500/40' : 'border-amber-500/60 bg-slate-950')
+            : 'border-slate-800/80 bg-slate-950/60';
+
+          const bigTextClass = displayMin === 'BRD'
+            ? 'led-red animate-brd'
+            : (displayMin === 'ARR' ? 'led-green animate-brd' : 'led-amber');
+
+          const subUnit = isImmediate ? displayMin : 'MIN';
+          const destCode = t.DestinationCode || '';
+          const destName = ((t.DestinationName || '') + ' ' + (t.Destination || '')).toLowerCase();
+
+          let shortDest = '';
+          if (destCode === 'A15' || destName.includes('shady')) shortDest = 'Shady Grv';
+          else if (destCode === 'A11' || destName.includes('grosv')) shortDest = 'Grosv';
+          else if (destCode === 'B11' || destName.includes('glenmont')) shortDest = 'Glenmont';
+          else if (destCode === 'B08' || destName.includes('silver') || destName.includes('silvr')) shortDest = 'Silvr Spg';
+          else if (destCode === 'K08' || destName.includes('vienna')) shortDest = 'Vienna';
+          else if (destCode === 'N06' || destName.includes('ashburn')) shortDest = 'Ashburn';
+          else if (destCode === 'J03' || destName.includes('franconia')) shortDest = 'Franconia';
+          else shortDest = t.Destination || 'Train';
+
+          const lineBadgeHtml = showLineBadge ? getLineBadge(t.Line) : '';
+
+          return (
+            '<div class="flex flex-col items-center justify-center rounded-lg border px-1 py-1.5 text-center min-w-0 ' + cardBorder + '">' +
+              '<div class="flex items-center gap-1 leading-none">' +
+                lineBadgeHtml +
+                '<span class="text-[9px] font-bold uppercase tracking-wider text-slate-400">' +
+                  (idx === 0 ? 'Next' : '#' + (idx + 1)) +
+                '</span>' +
+              '</div>' +
+              '<div class="font-mono-led text-2xl font-black tracking-tight leading-tight sm:text-3xl ' + bigTextClass + '">' +
+                displayMin +
+              '</div>' +
+              '<span class="text-[9px] font-extrabold uppercase text-slate-400 leading-none">' +
+                subUnit +
+              '</span>' +
+              '<span class="mt-1 block w-full truncate px-0.5 text-center text-[10px] font-semibold text-slate-300 leading-tight">' +
+                shortDest +
+              '</span>' +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function updateBoardOrder() {
+        const hour = new Date().getHours();
+        const isMorning = hour < 12;
+        let showMorningFirst = isMorning;
+
+        if (state.timeMode === 'am_first') showMorningFirst = true;
+        if (state.timeMode === 'pm_first') showMorningFirst = false;
+
+        const cardAM = document.getElementById('cardMorning');
+        const cardPM_Red = document.getElementById('cardEvening');
+        const cardPM_Fed = document.getElementById('cardFederalTriangle');
+        const container = document.getElementById('commuteCardsContainer');
+        const badge = document.getElementById('commuteScheduleBadge');
+
+        if (showMorningFirst) {
+          // Morning order: Silver Spring -> Federal Triangle -> Metro Center
+          container.appendChild(cardAM);
+          container.appendChild(cardPM_Fed);
+          container.appendChild(cardPM_Red);
+          badge.textContent = 'Morning Order';
+          cardAM.classList.add('ring-1', 'ring-amber-500/40');
+          cardPM_Fed.classList.remove('ring-1', 'ring-sky-500/40');
+          cardPM_Red.classList.remove('ring-1', 'ring-indigo-500/40');
+        } else {
+          // Afternoon order: Federal Triangle FIRST, then Metro Center, then Silver Spring
+          container.appendChild(cardPM_Fed);
+          container.appendChild(cardPM_Red);
+          container.appendChild(cardAM);
+          badge.textContent = 'Afternoon Order';
+          cardPM_Fed.classList.add('ring-1', 'ring-sky-500/40');
+          cardPM_Red.classList.add('ring-1', 'ring-indigo-500/40');
+          cardAM.classList.remove('ring-1', 'ring-amber-500/40');
+        }
+      }
+
+      function renderAll() {
+        updateBoardOrder();
+
+        const morningTrains = state.trains
+          .filter(isShadyGroveBound)
+          .sort(function (a, b) { return parseMinRank(a.Min) - parseMinRank(b.Min); });
+
+        const eveningTrains = state.trains
+          .filter(isGlenmontBound)
+          .sort(function (a, b) { return parseMinRank(a.Min) - parseMinRank(b.Min); });
+
+        const fedTriangleTrains = state.trains
+          .filter(isFederalTriangleBound)
+          .sort(function (a, b) { return parseMinRank(a.Min) - parseMinRank(b.Min); });
+
+        // Pace Badges
+        const amPace = computePaceAdvisory(morningTrains);
+        const amEl = document.getElementById('morningPaceBadge');
+        amEl.textContent = amPace.text;
+        amEl.className = 'rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ' + amPace.cls;
+
+        const pmPace = computePaceAdvisory(eveningTrains);
+        const pmEl = document.getElementById('eveningPaceBadge');
+        pmEl.textContent = pmPace.text;
+        pmEl.className = 'rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ' + pmPace.cls;
+
+        const fedPace = computePaceAdvisory(fedTriangleTrains);
+        const fedEl = document.getElementById('fedTrianglePaceBadge');
+        fedEl.textContent = fedPace.text;
+        fedEl.className = 'rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ' + fedPace.cls;
+
+        // Render Quick Minute Badges
+        document.getElementById('morningQuickMinutesRow').innerHTML = renderQuickMinuteBlocks(morningTrains, false);
+        document.getElementById('eveningQuickMinutesRow').innerHTML = renderQuickMinuteBlocks(eveningTrains, false);
+        document.getElementById('fedTriangleQuickMinutesRow').innerHTML = renderQuickMinuteBlocks(fedTriangleTrains, true);
+      }
+
+      async function fetchWMATAPredictions() {
+        state.secondsRemaining = state.refreshSeconds;
+
+        if (state.forceDemo) {
+          state.trains = getSimulatedTrains();
+          state.isLiveFeed = false;
+          state.lastFetchTime = new Date();
+          document.getElementById('feedStatusText').textContent = 'Simulated';
+          document.getElementById('feedModeIndicator').textContent = 'Test Mode';
+          updateLastUpdatedText();
+          renderAll();
+          return;
+        }
+
+        // Queries Silver Spring (B08), Metro Center (A01), and Federal Triangle (D01)
+        const url = 'https://api.wmata.com/StationPrediction.svc/json/GetPrediction/B08,A01,D01?api_key=' + encodeURIComponent(state.apiKey);
+        try {
+          const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const data = await response.json();
+          if (data && Array.isArray(data.Trains)) {
+            state.trains = data.Trains;
+            state.isLiveFeed = true;
+            state.lastFetchTime = new Date();
+            document.getElementById('feedStatusText').textContent = 'Live Feed';
+            document.getElementById('feedStatusText').className = 'text-emerald-400 font-semibold';
+            document.getElementById('feedModeIndicator').textContent = 'Live WMATA API';
+            updateLastUpdatedText();
+            renderAll();
+            return;
+          }
+          throw new Error('Bad data format');
+        } catch (err) {
+          state.trains = getSimulatedTrains();
+          state.isLiveFeed = false;
+          state.lastFetchTime = new Date();
+          document.getElementById('feedStatusText').textContent = 'Sandbox Preview';
+          document.getElementById('feedStatusText').className = 'text-amber-400 font-semibold';
+          document.getElementById('feedModeIndicator').textContent = 'Sandbox Isolated (Live outside)';
+          updateLastUpdatedText();
+          renderAll();
+        }
+      }
+
+      function updateLastUpdatedText() {
+        const el = document.getElementById('lastUpdatedText');
+        if (!state.lastFetchTime) {
+          el.textContent = '0s ago';
+          return;
+        }
+        const diffSec = Math.max(0, Math.floor((Date.now() - state.lastFetchTime.getTime()) / 1000));
+        el.textContent = diffSec + 's ago';
+      }
+
+      function openSettingsModal() {
+        document.getElementById('inputApiKey').value = state.apiKey;
+        document.getElementById('selectRefreshInterval').value = String(state.refreshSeconds);
+        document.getElementById('selectTimeMode').value = state.timeMode;
+        document.getElementById('chkForceDemo').checked = state.forceDemo;
+        const modal = document.getElementById('settingsModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+
+      function closeSettingsModal() {
+        const modal = document.getElementById('settingsModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        loadSavedSettings();
+
+        document.getElementById('btnRefreshNow').addEventListener('click', function () {
+          fetchWMATAPredictions();
+          showToast('Refreshed!', false);
+        });
+
+        document.getElementById('btnTogglePause').addEventListener('click', function () {
+          state.isPaused = !state.isPaused;
+          document.getElementById('pauseBtnLabel').textContent = state.isPaused ? 'Resume Auto' : 'Pause Auto';
+        });
+
+        document.getElementById('btnOpenSettings').addEventListener('click', openSettingsModal);
+        document.getElementById('btnCloseSettings').addEventListener('click', closeSettingsModal);
+        document.getElementById('btnCancelSettings').addEventListener('click', closeSettingsModal);
+
+        document.getElementById('btnResetDemoKey').addEventListener('click', function () {
+          document.getElementById('inputApiKey').value = DEFAULT_DEMO_KEY;
+          showToast('Demo key set', false);
+        });
+
+        document.getElementById('btnSaveSettings').addEventListener('click', function () {
+          const rawKey = document.getElementById('inputApiKey').value.trim();
+          state.apiKey = rawKey || DEFAULT_DEMO_KEY;
+          state.refreshSeconds = parseInt(document.getElementById('selectRefreshInterval').value, 10) || 20;
+          state.timeMode = document.getElementById('selectTimeMode').value;
+          state.forceDemo = document.getElementById('chkForceDemo').checked;
+          saveSettingsToStorage();
+          closeSettingsModal();
+          fetchWMATAPredictions();
+          showToast('Settings saved!', false);
+        });
+
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') fetchWMATAPredictions();
+        });
+
+        setInterval(function () {
+          updateLastUpdatedText();
+          if (!state.isPaused) {
+            state.secondsRemaining -= 1;
+            if (state.secondsRemaining <= 0) fetchWMATAPredictions();
+          }
+        }, 1000);
+
+        fetchWMATAPredictions();
+      });
+    })();
+  </script>
+</body>
+</html>
